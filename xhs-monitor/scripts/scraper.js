@@ -11,56 +11,55 @@ const userId = args[1] || '';
 const cookie = args[2] || '';
 
 function outputResult(data) {
-    console.log(JSON.stringify(data, null, 2));
+    // 确保只输出JSON到stdout
+    process.stdout.write(JSON.stringify(data));
 }
 
 async function scrapeUserNotes(userId, cookie = '') {
+    const browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+    
+    const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        viewport: { width: 1920, height: 1080 },
+        ignoreHTTPSErrors: true
+    });
+    
+    const page = await context.newPage();
+    
+    await page.setExtraHTTPHeaders({
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    });
+    
+    const url = `https://www.xiaohongshu.com/user/profile/${userId}`;
+    
     try {
-        const browser = await chromium.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-        });
-        
-        const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            viewport: { width: 1920, height: 1080 },
-            ignoreHTTPSErrors: true
-        });
-        
-        const page = await context.newPage();
-        
-        await page.setExtraHTTPHeaders({
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        });
-        
-        const url = `https://www.xiaohongshu.com/user/profile/${userId}`;
-        console.error(`正在访问: ${url}`); // 使用stderr避免干扰stdout
-        
         await page.goto(url, {
             waitUntil: 'networkidle',
             timeout: 60000
         });
         
-        // 等待页面加载
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(2000);
         
-        // 获取页面内容
         const content = await page.content();
         
-        // 提取 __INITIAL_STATE__
-        let userData = { nickname: '', avatar: '', fans: 0, notes: [] };
-        let notes = [];
-        
-        // 检查是否是错误页面（验证码/登录等）
-        if (content.includes('验证中心') || content.includes('登录') || content.includes('captcha')) {
+        // 检查是否是错误页面
+        if (content.includes('验证中心') || content.includes('captcha') || content.includes('请登录')) {
             await browser.close();
-            return {
-                success: false,
-                error: '需要登录或遇到验证码，请配置Cookie或稍后重试',
-                user_id: userId
-            };
+            return { success: false, error: '需要登录或遇到验证码，请配置Cookie', user_id: userId };
         }
+        
+        // 检查是否是404页面
+        if (content.includes('页面不存在') || content.includes('404')) {
+            await browser.close();
+            return { success: false, error: '用户不存在或已被删除', user_id: userId };
+        }
+        
+        let userData = { nickname: '', avatar: '', fans: 0 };
+        let notes = [];
         
         const initialStateMatch = content.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});/s);
         if (initialStateMatch) {
@@ -68,9 +67,11 @@ async function scrapeUserNotes(userId, cookie = '') {
                 const data = JSON.parse(initialStateMatch[1]);
                 
                 if (data['user']) {
-                    userData.nickname = data['user'].nickname || '';
-                    userData.avatar = data['user'].avatar || '';
-                    userData.fans = data['user'].fans || 0;
+                    userData = {
+                        nickname: data['user'].nickname || '',
+                        avatar: data['user'].avatar || '',
+                        fans: data['user'].fans || 0
+                    };
                 }
                 
                 if (data['noteList']) {
@@ -85,13 +86,13 @@ async function scrapeUserNotes(userId, cookie = '') {
                     }));
                 }
             } catch (e) {
-                console.error('JSON解析失败:', e.message);
+                // JSON解析失败，忽略
             }
         }
         
         await browser.close();
         
-        const result = {
+        return {
             success: true,
             user_id: userId,
             user: userData,
@@ -99,15 +100,9 @@ async function scrapeUserNotes(userId, cookie = '') {
             count: notes.length
         };
         
-        return result;
-        
     } catch (error) {
-        console.error('抓取失败:', error.message);
-        return {
-            success: false,
-            error: error.message,
-            user_id: userId
-        };
+        await browser.close();
+        return { success: false, error: error.message, user_id: userId };
     }
 }
 

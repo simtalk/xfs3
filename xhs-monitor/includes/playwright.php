@@ -71,6 +71,10 @@ class PlaywrightExecutor {
         fclose($pipes[2]);
         
         $returnCode = proc_close($process);
+        
+        // 清理输出中的非JSON内容（如console.error输出）
+        $output = trim($output);
+        
         return $returnCode === 0;
     }
     
@@ -92,29 +96,34 @@ class PlaywrightExecutor {
         
         // 构建命令
         $cmd = sprintf(
-            '%s %s %s %s %s',
+            '%s %s %s %s 2>/dev/null',
             escapeshellcmd($this->nodePath),
             escapeshellarg($this->scriptPath),
             escapeshellarg($command),
-            escapeshellarg($param),
-            $cookie ? escapeshellarg($cookie) : ''
+            escapeshellarg($param)
         );
         
         // 执行命令
         $startTime = microtime(true);
-        
         $this->runCommand($cmd, $output, $returnCode);
-        
         $duration = round(microtime(true) - $startTime, 2);
         
-        // 解析输出
+        // 解析输出 - 查找JSON部分
+        $output = trim($output);
+        
+        // 尝试找到JSON开始的位置
+        $jsonStart = strpos($output, '{');
+        if ($jsonStart !== false && $jsonStart > 0) {
+            $output = substr($output, $jsonStart);
+        }
+        
         $result = json_decode($output, true);
         
         if (json_last_error() !== JSON_ERROR_NONE) {
             return [
                 'success' => false,
-                'error' => '无法解析脚本输出',
-                'raw_output' => $output,
+                'error' => '无法解析脚本输出: ' . json_last_error_msg(),
+                'raw_output' => substr($output, 0, 500),
                 'duration' => $duration
             ];
         }
