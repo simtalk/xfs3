@@ -8,13 +8,13 @@ const { chromium } = require('playwright');
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
 const userId = args[1] || '';
-const cookie = args[2] || process.env.XHS_COOKIE || '';  // 支持从环境变量读取Cookie
+const cookieArg = args[2] || process.env.XHS_COOKIE || '';
 
 function outputResult(data) {
     process.stdout.write(JSON.stringify(data));
 }
 
-async function scrapeUserNotes(userId, cookie = '') {
+async function scrapeUserNotes(userId, cookieStr = '') {
     const browser = await chromium.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
@@ -27,32 +27,36 @@ async function scrapeUserNotes(userId, cookie = '') {
     };
     
     // 如果提供了Cookie，使用Cookie创建上下文
-    if (cookie) {
+    if (cookieStr && cookieStr.trim()) {
         try {
-            // 尝试解析Cookie字符串
-            const cookieArray = cookie.split(';').map(c => {
-                const parts = c.trim().split('=');
-                if (parts.length >= 2) {
+            // 解析Cookie字符串为对象数组
+            const cookieArray = cookieStr.split(';').map(c => {
+                c = c.trim();
+                const firstEq = c.indexOf('=');
+                if (firstEq > 0) {
+                    const name = c.substring(0, firstEq).trim();
+                    const value = c.substring(firstEq + 1).trim();
                     return {
-                        name: parts[0].trim(),
-                        value: parts.slice(1).join('=').trim(),
+                        name: name,
+                        value: value,
                         domain: '.xiaohongshu.com',
-                        path: '/'
+                        path: '/',
+                        secure: true,
+                        httpOnly: false
                     };
                 }
                 return null;
             }).filter(c => c !== null);
             
             if (cookieArray.length > 0) {
-                contextOptions.cookies = cookieArray;
+                contextOptions.storageState = { cookies: cookieArray };
             }
         } catch (e) {
-            // Cookie解析失败，继续使用无Cookie上下文
+            console.error('Cookie解析失败:', e.message);
         }
     }
     
     const context = await browser.newContext(contextOptions);
-    
     const page = await context.newPage();
     
     await page.setExtraHTTPHeaders({
@@ -63,6 +67,38 @@ async function scrapeUserNotes(userId, cookie = '') {
     const url = `https://www.xiaohongshu.com/user/profile/${userId}`;
     
     try {
+        // 先访问首页建立基本会话
+        await page.goto('https://www.xiaohongshu.com', {
+            waitUntil: 'networkidle',
+            timeout: 30000
+        });
+        
+        // 如果有Cookie，设置到页面
+        if (cookieStr && cookieStr.trim()) {
+            const cookieArray = cookieStr.split(';').map(c => {
+                c = c.trim();
+                const firstEq = c.indexOf('=');
+                if (firstEq > 0) {
+                    return {
+                        name: c.substring(0, firstEq).trim(),
+                        value: c.substring(firstEq + 1).trim(),
+                        domain: '.xiaohongshu.com',
+                        path: '/'
+                    };
+                }
+                return null;
+            }).filter(c => c !== null);
+            
+            for (const cookie of cookieArray) {
+                try {
+                    await context.addCookies([cookie]);
+                } catch (e) {
+                    // 忽略单个cookie设置失败
+                }
+            }
+        }
+        
+        // 访问用户页面
         await page.goto(url, {
             waitUntil: 'networkidle',
             timeout: 60000
@@ -73,9 +109,10 @@ async function scrapeUserNotes(userId, cookie = '') {
         const content = await page.content();
         
         // 检查是否是错误页面
-        if (content.includes('验证中心') || content.includes('captcha') || content.includes('请登录')) {
+        if (content.includes('验证中心') || content.includes('captcha') || 
+            (content.includes('请登录') && !content.includes('已登录'))) {
             await browser.close();
-            return { success: false, error: '需要登录或遇到验证码，请配置有效的Cookie', user_id: userId };
+            return { success: false, error: '需要登录或遇到验证码，请检查Cookie是否有效或已过期', user_id: userId };
         }
         
         // 检查是否是404页面
@@ -166,13 +203,13 @@ async function main() {
             if (userId.includes('xhslink.com') || userId.includes('xhs.cn')) {
                 const resolved = await resolveShortUrl(userId);
                 if (resolved.success && resolved.user_id) {
-                    const result = await scrapeUserNotes(resolved.user_id, cookie);
+                    const result = await scrapeUserNotes(resolved.user_id, cookieArg);
                     outputResult(result);
                 } else {
                     outputResult({ success: false, error: '无法解析短链接' });
                 }
             } else {
-                const result = await scrapeUserNotes(userId, cookie);
+                const result = await scrapeUserNotes(userId, cookieArg);
                 outputResult(result);
             }
             break;
