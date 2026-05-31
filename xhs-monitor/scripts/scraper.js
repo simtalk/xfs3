@@ -108,17 +108,53 @@ async function scrapeUserNotes(userId, cookieStr = '') {
         
         const content = await page.content();
         
+        // 调试：检查页面内容关键词
+        const hasLogin = content.includes('请登录') || content.includes('登录');
+        const hasVerify = content.includes('验证中心') || content.includes('captcha');
+        const hasNickname = content.includes('nickname');
+        const hasInitialState = content.includes('__INITIAL_STATE__');
+        
+        // 如果有Cookie但仍然显示登录，尝试另一种方式
+        if (hasLogin && !hasNickname && cookieStr && cookieStr.trim()) {
+            // 可能Cookie有效但需要额外设置
+            // 尝试获取登录状态
+            const isLoggedIn = await page.evaluate(() => {
+                // 检查localStorage中是否有登录信息
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                return !!token;
+            });
+            
+            if (!isLoggedIn) {
+                await browser.close();
+                return { 
+                    success: false, 
+                    error: 'Cookie可能已过期，请重新获取登录Cookie', 
+                    user_id: userId,
+                    debug: { hasLogin, hasVerify, hasNickname, hasInitialState }
+                };
+            }
+        }
+        
         // 检查是否是错误页面
-        if (content.includes('验证中心') || content.includes('captcha') || 
-            (content.includes('请登录') && !content.includes('已登录'))) {
+        if (content.includes('验证中心') || content.includes('captcha')) {
             await browser.close();
-            return { success: false, error: '需要登录或遇到验证码，请检查Cookie是否有效或已过期', user_id: userId };
+            return { success: false, error: '遇到验证码，请稍后再试', user_id: userId };
         }
         
         // 检查是否是404页面
         if (content.includes('页面不存在') || content.includes('404')) {
             await browser.close();
             return { success: false, error: '用户不存在或已被删除', user_id: userId };
+        }
+        
+        // 检查是否有用户数据
+        if (!hasNickname && !hasInitialState) {
+            await browser.close();
+            return { 
+                success: false, 
+                error: '无法获取用户数据，可能Cookie已过期', 
+                user_id: userId 
+            };
         }
         
         let userData = { nickname: '', avatar: '', fans: 0 };
