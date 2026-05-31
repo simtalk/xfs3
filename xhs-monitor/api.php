@@ -48,26 +48,30 @@ try {
                 $userId = $userInput;
             }
             
-            // 获取用户信息
+            // 先保存用户（即使后面抓取失败，用户也能被保存）
+            $db->addUser($userId, '', '', $note);
+            
+            // 获取用户信息（可能失败）
             $userInfo = $xhsApi->getUserInfo($userId);
             
-            if (!$userInfo['success'] && empty($userInfo['data']['nickname'])) {
-                // 无法获取用户信息，但仍保存用户ID
-                $db->addUser($userId, '', '', $note);
-                $response['success'] = true;
-                $response['message'] = '用户已添加（无法获取详细信息，请检查链接是否正确）';
-            } else {
+            if ($userInfo['success'] && !empty($userInfo['data']['nickname'])) {
                 $data = $userInfo['data'];
                 $db->addUser($userId, $data['nickname'], $data['avatar'], $note);
                 
                 // 获取作品列表
                 $notes = $xhsApi->getLatestNotes($userId, 10);
                 foreach ($notes as $noteData) {
-                    $db->addNote($noteData['note_id'], $userId, $noteData);
+                    if (!empty($noteData['note_id'])) {
+                        $db->addNote($noteData['note_id'], $userId, $noteData);
+                    }
                 }
                 
                 $response['success'] = true;
                 $response['message'] = '用户 ' . $data['nickname'] . ' 已添加';
+            } else {
+                // 抓取失败，但用户已保存
+                $response['success'] = true;
+                $response['message'] = '用户已添加（抓取失败: ' . ($userInfo['message'] ?? '未知错误') . '，后续可重试）';
             }
             break;
             

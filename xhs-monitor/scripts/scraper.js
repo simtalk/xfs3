@@ -4,39 +4,38 @@
  */
 
 const { chromium } = require('playwright');
-const https = require('https');
-const http = require('http');
 
-// 命令行参数
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
 const userId = args[1] || '';
 const cookie = args[2] || '';
 
+function outputResult(data) {
+    console.log(JSON.stringify(data, null, 2));
+}
+
 async function scrapeUserNotes(userId, cookie = '') {
-    const browser = await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
-    
-    const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        viewport: { width: 1920, height: 1080 },
-        ignoreHTTPSErrors: true
-    });
-    
-    const page = await context.newPage();
-    
-    // 设置额外的请求头
-    await page.setExtraHTTPHeaders({
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-    });
-    
     try {
-        // 访问用户主页
+        const browser = await chromium.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        });
+        
+        const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport: { width: 1920, height: 1080 },
+            ignoreHTTPSErrors: true
+        });
+        
+        const page = await context.newPage();
+        
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        });
+        
         const url = `https://www.xiaohongshu.com/user/profile/${userId}`;
-        console.log(`正在访问: ${url}`);
+        console.error(`正在访问: ${url}`); // 使用stderr避免干扰stdout
         
         await page.goto(url, {
             waitUntil: 'networkidle',
@@ -53,19 +52,27 @@ async function scrapeUserNotes(userId, cookie = '') {
         let userData = { nickname: '', avatar: '', fans: 0, notes: [] };
         let notes = [];
         
+        // 检查是否是错误页面（验证码/登录等）
+        if (content.includes('验证中心') || content.includes('登录') || content.includes('captcha')) {
+            await browser.close();
+            return {
+                success: false,
+                error: '需要登录或遇到验证码，请配置Cookie或稍后重试',
+                user_id: userId
+            };
+        }
+        
         const initialStateMatch = content.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});/s);
         if (initialStateMatch) {
             try {
                 const data = JSON.parse(initialStateMatch[1]);
                 
-                // 提取用户信息
                 if (data['user']) {
                     userData.nickname = data['user'].nickname || '';
                     userData.avatar = data['user'].avatar || '';
                     userData.fans = data['user'].fans || 0;
                 }
                 
-                // 提取作品列表
                 if (data['noteList']) {
                     notes = data['noteList'].map(note => ({
                         note_id: note.id || note.note_id || '',
@@ -78,47 +85,12 @@ async function scrapeUserNotes(userId, cookie = '') {
                     }));
                 }
             } catch (e) {
-                console.log('JSON解析失败:', e.message);
+                console.error('JSON解析失败:', e.message);
             }
         }
         
-        // 如果没有获取到数据，尝试滚动页面加载更多
-        if (notes.length === 0) {
-            console.log('尝试滚动页面加载更多内容...');
-            for (let i = 0; i < 3; i++) {
-                await page.evaluate(() => window.scrollBy(0, 500));
-                await page.waitForTimeout(1000);
-            }
-            
-            // 再次尝试提取
-            const newContent = await page.content();
-            const newMatch = newContent.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});/s);
-            if (newMatch) {
-                try {
-                    const data = JSON.parse(newMatch[1]);
-                    if (data['noteList']) {
-                        notes = data['noteList'].map(note => ({
-                            note_id: note.id || note.note_id || '',
-                            title: note.title || note.display_title || '',
-                            cover_url: note.cover_url || '',
-                            liked_count: parseInt(note.liked_count || 0),
-                            collected_count: parseInt(note.collected_count || 0),
-                            comment_count: parseInt(note.comment_count || 0),
-                            published_at: note.time ? new Date(note.time * 1000).toISOString() : null
-                        }));
-                    }
-                    if (data['user']) {
-                        userData.nickname = data['user'].nickname || userData.nickname;
-                        userData.avatar = data['user'].avatar || userData.avatar;
-                        userData.fans = data['user'].fans || userData.fans;
-                    }
-                } catch (e) {
-                    console.log('滚动后JSON解析失败');
-                }
-            }
-        }
+        await browser.close();
         
-        // 输出结果
         const result = {
             success: true,
             user_id: userId,
@@ -127,7 +99,6 @@ async function scrapeUserNotes(userId, cookie = '') {
             count: notes.length
         };
         
-        console.log(JSON.stringify(result, null, 2));
         return result;
         
     } catch (error) {
@@ -137,56 +108,61 @@ async function scrapeUserNotes(userId, cookie = '') {
             error: error.message,
             user_id: userId
         };
-    } finally {
-        await browser.close();
     }
 }
 
-/**
- * 从分享链接获取用户ID
- */
 async function resolveShortUrl(shortUrl) {
     return new Promise((resolve) => {
+        const https = require('https');
         const urlObj = new URL(shortUrl);
-        const client = urlObj.protocol === 'https:' ? https : http;
         
-        client.get(shortUrl, { followAllRedirects: true }, (res) => {
-            const finalUrl = res.url || shortUrl;
+        const options = {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname,
+            method: 'GET',
+            followAllRedirects: true
+        };
+        
+        const req = https.request(options, (res) => {
+            const finalUrl = res.socket._httpMessage.path || shortUrl;
             const match = finalUrl.match(/xiaohongshu\.com\/(?:discovery\/)?profile\/([a-zA-Z0-9]+)/);
-            resolve(match ? match[1] : null);
-        }).on('error', () => resolve(null));
+            resolve({ success: true, user_id: match ? match[1] : null });
+        });
+        
+        req.on('error', () => resolve({ success: false, user_id: null }));
+        req.end();
     });
 }
 
-// 主入口
 async function main() {
     switch (command) {
         case 'scrape':
             if (!userId) {
-                console.log(JSON.stringify({ success: false, error: '请提供用户ID' }));
+                outputResult({ success: false, error: '请提供用户ID' });
                 process.exit(1);
             }
             
-            // 如果是短链接，先解析
             if (userId.includes('xhslink.com') || userId.includes('xhs.cn')) {
-                const resolvedId = await resolveShortUrl(userId);
-                if (resolvedId) {
-                    await scrapeUserNotes(resolvedId, cookie);
+                const resolved = await resolveShortUrl(userId);
+                if (resolved.success && resolved.user_id) {
+                    const result = await scrapeUserNotes(resolved.user_id, cookie);
+                    outputResult(result);
                 } else {
-                    console.log(JSON.stringify({ success: false, error: '无法解析短链接' }));
+                    outputResult({ success: false, error: '无法解析短链接' });
                 }
             } else {
-                await scrapeUserNotes(userId, cookie);
+                const result = await scrapeUserNotes(userId, cookie);
+                outputResult(result);
             }
             break;
             
         case 'resolve':
             if (!userId) {
-                console.log(JSON.stringify({ success: false, error: '请提供链接' }));
+                outputResult({ success: false, error: '请提供链接' });
                 process.exit(1);
             }
-            const resolvedId = await resolveShortUrl(userId);
-            console.log(JSON.stringify({ success: true, user_id: resolvedId }));
+            const resolved = await resolveShortUrl(userId);
+            outputResult(resolved);
             break;
             
         default:
@@ -204,4 +180,7 @@ async function main() {
     }
 }
 
-main().catch(console.error);
+main().catch(e => {
+    console.error('Error:', e.message);
+    outputResult({ success: false, error: e.message });
+});

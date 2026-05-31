@@ -11,7 +11,7 @@ class XhsApi {
     private $baseUrl = 'https://www.xiaohongshu.com';
     private $playwright;
     
-    public function __construct() {
+    public function __construct($cookie = '') {
         $this->playwright = new PlaywrightExecutor();
     }
     
@@ -24,7 +24,18 @@ class XhsApi {
         $result = $this->playwright->scrapeUserNotes($userId);
         
         if (!$result['success']) {
-            return ['success' => false, 'message' => $result['error'] ?? '获取用户信息失败'];
+            return [
+                'success' => false, 
+                'message' => $result['error'] ?? '获取用户信息失败，请检查是否需要登录Cookie'
+            ];
+        }
+        
+        // 检查返回的数据是否有效
+        if (empty($result['user']) && empty($result['notes'])) {
+            return [
+                'success' => false,
+                'message' => '无法获取用户数据，可能需要登录Cookie或用户ID无效'
+            ];
         }
         
         $userData = $result['user'] ?? [];
@@ -33,7 +44,7 @@ class XhsApi {
             'success' => !empty($userData['nickname']),
             'data' => [
                 'user_id' => $userId,
-                'nickname' => $userData['nickname'] ?? '',
+                'nickname' => $userData['nickname'] ?? $userId,  // 如果获取不到昵称，使用ID作为昵称
                 'avatar' => $userData['avatar'] ?? '',
                 'fans' => $userData['fans'] ?? 0,
                 'liked' => 0,
@@ -63,13 +74,10 @@ class XhsApi {
         
         $notes = $result['notes'] ?? [];
         
-        // 分页处理
-        $start = ($page - 1) * $pageSize;
-        $paginatedNotes = array_slice($notes, $start, $pageSize);
-        
+        // 即使没有获取到数据，也返回成功，允许用户先保存
         return [
             'success' => true,
-            'notes' => $paginatedNotes,
+            'notes' => $notes,
             'total' => count($notes),
             'page' => $page,
             'pageSize' => $pageSize
@@ -112,12 +120,18 @@ class XhsApi {
             '/xiaohongshu\.com\/(?:discovery\/)?profile\/([a-zA-Z0-9]+)/',
             '/xhs\.cn\/([a-zA-Z0-9]+)/',
             '/www\.xhslink\.com\/([a-zA-Z0-9]+)/',
+            // 直接输入纯数字ID的情况
         ];
         
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $shareUrl, $matches)) {
                 return $matches[1];
             }
+        }
+        
+        // 如果输入的本身就是纯ID（数字+字母组合，常见于用户分享的个人页）
+        if (preg_match('/^[a-zA-Z0-9]{8,}$/', trim($shareUrl))) {
+            return trim($shareUrl);
         }
         
         // 尝试短链接解析
