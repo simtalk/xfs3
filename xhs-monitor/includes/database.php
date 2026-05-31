@@ -41,6 +41,9 @@ class Database {
     
     // 用户相关操作
     public function addUser($userId, $nickname = '', $avatar = '', $note = '') {
+        // 确保user_id长度合适
+        $userId = substr($userId, 0, 64);
+        
         $stmt = $this->pdo->prepare("
             INSERT INTO users (user_id, nickname, avatar, note) 
             VALUES (?, ?, ?, ?) 

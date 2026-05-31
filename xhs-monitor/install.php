@@ -31,13 +31,13 @@ try {
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `users` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
-            `user_id` VARCHAR(255) NOT NULL UNIQUE COMMENT '小红书用户ID',
+            `user_id` VARCHAR(64) NOT NULL COMMENT '小红书用户ID',
             `nickname` VARCHAR(255) DEFAULT '' COMMENT '用户昵称',
             `avatar` VARCHAR(512) DEFAULT '' COMMENT '头像URL',
             `note` VARCHAR(255) DEFAULT '' COMMENT '备注',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX `idx_user_id` (`user_id`),
+            UNIQUE KEY `idx_user_id` (`user_id`),
             INDEX `idx_created_at` (`created_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");

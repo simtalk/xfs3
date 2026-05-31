@@ -17,18 +17,61 @@ class PlaywrightExecutor {
     
     /**
      * 查找 Node.js 可执行文件路径
+     * 使用 file_exists 和 which 的替代方案
      */
     private function findNode() {
-        $paths = ['node', '/usr/bin/node', '/usr/local/bin/node', '/opt/node/bin/node'];
+        $paths = ['node', '/usr/bin/node', '/usr/local/bin/node', '/opt/node/bin/node', '/usr/local/bin/node'];
         
+        // 尝试通过文件检查和简单命令测试
         foreach ($paths as $path) {
-            $result = exec($path . ' --version 2>/dev/null');
-            if (!empty($result) && strpos($result, 'v') === 0) {
-                return $path;
+            // 检查文件是否存在
+            if (file_exists($path) || $path === 'node') {
+                // 使用 proc_open 代替 exec，避免被禁用
+                $descriptorspec = [
+                    0 => ["pipe", "r"],
+                    1 => ["pipe", "w"],
+                    2 => ["pipe", "w"]
+                ];
+                
+                $process = proc_open($path . ' --version', $descriptorspec, $pipes);
+                if (is_resource($process)) {
+                    $output = stream_get_contents($pipes[1]);
+                    fclose($pipes[1]);
+                    fclose($pipes[2]);
+                    proc_close($process);
+                    
+                    if (!empty($output) && strpos($output, 'v') === 0) {
+                        return $path;
+                    }
+                }
             }
         }
         
         return 'node';
+    }
+    
+    /**
+     * 执行命令（替代exec）
+     */
+    private function runCommand($cmd, &$output = '', &$returnCode = 0) {
+        $descriptorspec = [
+            0 => ["pipe", "r"],
+            1 => ["pipe", "w"],
+            2 => ["pipe", "w"]
+        ];
+        
+        $process = proc_open($cmd, $descriptorspec, $pipes);
+        if (!is_resource($process)) {
+            return false;
+        }
+        
+        fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        
+        $returnCode = proc_close($process);
+        return $returnCode === 0;
     }
     
     /**
@@ -49,7 +92,7 @@ class PlaywrightExecutor {
         
         // 构建命令
         $cmd = sprintf(
-            '%s %s %s %s %s 2>&1',
+            '%s %s %s %s %s',
             escapeshellcmd($this->nodePath),
             escapeshellarg($this->scriptPath),
             escapeshellarg($command),
@@ -59,7 +102,9 @@ class PlaywrightExecutor {
         
         // 执行命令
         $startTime = microtime(true);
-        $output = shell_exec($cmd);
+        
+        $this->runCommand($cmd, $output, $returnCode);
+        
         $duration = round(microtime(true) - $startTime, 2);
         
         // 解析输出
@@ -96,8 +141,13 @@ class PlaywrightExecutor {
      * 检查 Playwright 是否可用
      */
     public function checkAvailability() {
-        $nodeVersion = shell_exec($this->nodePath . ' --version 2>&1');
-        $npmAvailable = exec('which npm 2>/dev/null') !== '';
+        // 检查node版本
+        $nodeVersion = '';
+        $this->runCommand($this->nodePath . ' --version', $nodeVersion);
+        
+        // 检查npm
+        $npmPath = dirname($this->nodePath) . '/npm';
+        $npmAvailable = file_exists($npmPath) || $this->runCommand('which npm', $output);
         
         $scriptExists = file_exists($this->scriptPath);
         
@@ -118,7 +168,6 @@ class PlaywrightExecutor {
      */
     public function install() {
         $cwd = __DIR__ . '/..';
-        chdir($cwd);
         
         // 检查 package.json
         if (!file_exists($cwd . '/package.json')) {
@@ -126,16 +175,16 @@ class PlaywrightExecutor {
         }
         
         // 执行 npm install
-        $output = shell_exec('cd ' . escapeshellarg($cwd) . ' && npm install 2>&1');
+        $this->runCommand('cd ' . escapeshellarg($cwd) . ' && npm install', $npmOutput);
         
         // 安装浏览器
-        $output2 = shell_exec('cd ' . escapeshellarg($cwd) . ' && npx playwright install chromium 2>&1');
+        $this->runCommand('cd ' . escapeshellarg($cwd) . ' && npx playwright install chromium', $installOutput);
         
         return [
             'success' => true,
             'message' => 'Playwright 安装完成',
-            'npm_output' => $output,
-            'install_output' => $output2
+            'npm_output' => $npmOutput,
+            'install_output' => $installOutput
         ];
     }
 }
