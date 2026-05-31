@@ -5,6 +5,14 @@
 
 session_start();
 
+// 自动初始化：如果 config.php 不存在，复制示例文件
+$configFile = __DIR__ . '/config.php';
+$configExample = __DIR__ . '/config.example.php';
+
+if (!file_exists($configFile) && file_exists($configExample)) {
+    copy($configExample, $configFile);
+}
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/database.php';
 require_once __DIR__ . '/includes/mailer.php';

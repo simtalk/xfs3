@@ -3,8 +3,9 @@
 *.swp
 *~
 
-# Config (保留示例文件)
-config.php
+# Config - 注意：保留 config.example.php 为模板
+# 用户需要复制 config.example.php 为 config.php 并填写实际配置
+# config.php 不应提交到公共仓库
 
 # Logs
 data/*.log
@@ -21,3 +22,6 @@ Thumbs.db
 # Composer
 /vendor/
 composer.phar
+
+# Node modules (如果使用 Playwright)
+node_modules/

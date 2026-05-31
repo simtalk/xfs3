@@ -3,8 +3,16 @@
  * Playwright 安装检查和引导页面
  */
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/includes/xhs_api.php';
+// 自动初始化：如果 config.php 不存在，复制示例文件
+$configFile = dirname(__FILE__) . '/config.php';
+$configExample = dirname(__FILE__) . '/config.example.php';
+
+if (!file_exists($configFile) && file_exists($configExample)) {
+    copy($configExample, $configFile);
+}
+
+require_once dirname(__FILE__) . '/config.php';
+require_once dirname(__FILE__) . '/includes/xhs_api.php';
 
 header('Content-Type: text/html; charset=UTF-8');
 
