@@ -8,10 +8,9 @@ const { chromium } = require('playwright');
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
 const userId = args[1] || '';
-const cookie = args[2] || '';
+const cookie = args[2] || process.env.XHS_COOKIE || '';  // 支持从环境变量读取Cookie
 
 function outputResult(data) {
-    // 确保只输出JSON到stdout
     process.stdout.write(JSON.stringify(data));
 }
 
@@ -21,11 +20,38 @@ async function scrapeUserNotes(userId, cookie = '') {
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
     
-    const context = await browser.newContext({
+    const contextOptions = {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
         viewport: { width: 1920, height: 1080 },
         ignoreHTTPSErrors: true
-    });
+    };
+    
+    // 如果提供了Cookie，使用Cookie创建上下文
+    if (cookie) {
+        try {
+            // 尝试解析Cookie字符串
+            const cookieArray = cookie.split(';').map(c => {
+                const parts = c.trim().split('=');
+                if (parts.length >= 2) {
+                    return {
+                        name: parts[0].trim(),
+                        value: parts.slice(1).join('=').trim(),
+                        domain: '.xiaohongshu.com',
+                        path: '/'
+                    };
+                }
+                return null;
+            }).filter(c => c !== null);
+            
+            if (cookieArray.length > 0) {
+                contextOptions.cookies = cookieArray;
+            }
+        } catch (e) {
+            // Cookie解析失败，继续使用无Cookie上下文
+        }
+    }
+    
+    const context = await browser.newContext(contextOptions);
     
     const page = await context.newPage();
     
@@ -49,7 +75,7 @@ async function scrapeUserNotes(userId, cookie = '') {
         // 检查是否是错误页面
         if (content.includes('验证中心') || content.includes('captcha') || content.includes('请登录')) {
             await browser.close();
-            return { success: false, error: '需要登录或遇到验证码，请配置Cookie', user_id: userId };
+            return { success: false, error: '需要登录或遇到验证码，请配置有效的Cookie', user_id: userId };
         }
         
         // 检查是否是404页面

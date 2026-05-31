@@ -143,6 +143,26 @@ try {
             $response['message'] = '设置已保存';
             break;
             
+        case 'save_cookie':
+            $cookie = trim($_POST['cookie'] ?? '');
+            
+            // 更新 config.php 中的 cookie
+            $configFile = __DIR__ . '/config.php';
+            if (file_exists($configFile)) {
+                $content = file_get_contents($configFile);
+                
+                // 使用正则替换 cookie 值
+                $pattern = "/('cookie'\s*=>\s*)'[^']*'/";
+                $replacement = "'\\1'" . str_replace("'", "\\'", $cookie) . "'";
+                $content = preg_replace($pattern, $replacement, $content);
+                
+                file_put_contents($configFile, $content);
+            }
+            
+            $response['success'] = true;
+            $response['message'] = 'Cookie已保存到config.php';
+            break;
+            
         case 'get_users':
             $users = $db->getUsers();
             $result = [];

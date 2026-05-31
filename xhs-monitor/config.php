@@ -27,6 +27,11 @@ $smtp_config = [
     'debug' => false
 ];
 
+// 小红书Cookie配置（用于登录状态抓取）
+$xhs_config = [
+    'cookie' => '',  // 填入小红书登录后的Cookie
+];
+
 // 监控配置
 $monitor_config = [
     'check_interval' => 600,  // 检查间隔（秒），默认10分钟

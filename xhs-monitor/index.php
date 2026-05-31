@@ -305,6 +305,23 @@ if (!$dbInitialized && empty($action)) {
             <div id="settingsMessage"></div>
         </div>
         
+        <div class="card">
+            <div class="card-title">
+                <span>🔑</span> 小红书Cookie设置
+            </div>
+            <form id="cookieForm" onsubmit="saveCookieSettings(event)">
+                <div class="form-group">
+                    <label>登录Cookie（用于获取用户数据）</label>
+                    <textarea id="xhsCookie" rows="3" placeholder="请输入小红书登录后的Cookie，格式如：web_session=xxx; web_id=xxx; ..."><?= isset($xhs_config['cookie']) ? htmlspecialchars($xhs_config['cookie']) : '' ?></textarea>
+                    <small style="color: #999; display: block; margin-top: 5px;">
+                        获取方法：在小红书网页版登录后，按F12打开开发者工具 -> Application -> Cookies -> 复制全部Cookie值
+                    </small>
+                </div>
+                <button type="submit" class="btn">保存Cookie</button>
+            </form>
+            <div id="cookieMessage"></div>
+        </div>
+        
         <div class="card" style="text-align: center; color: #999; font-size: 14px;">
             <p>📌 提示：系统默认每10分钟检查一次更新。如需修改定时任务，请编辑 cron.php 或修改服务器定时任务。</p>
             <p style="margin-top: 10px;">
@@ -414,6 +431,33 @@ if (!$dbInitialized && empty($action)) {
             
             if (result.success) {
                 messageDiv.innerHTML = '<div class="alert alert-success">✓ 设置已保存</div>';
+            } else {
+                messageDiv.innerHTML = '<div class="alert alert-error">✗ ' + result.message + '</div>';
+            }
+        } catch (err) {
+            messageDiv.innerHTML = '<div class="alert alert-error">✗ 请求失败</div>';
+        }
+    }
+    
+    async function saveCookieSettings(e) {
+        e.preventDefault();
+        const cookie = document.getElementById('xhsCookie').value;
+        const messageDiv = document.getElementById('cookieMessage');
+        
+        try {
+            const formData = new FormData();
+            formData.append('action', 'save_cookie');
+            formData.append('cookie', cookie);
+            
+            const response = await fetch('api.php', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                messageDiv.innerHTML = '<div class="alert alert-success">✓ Cookie已保存</div>';
             } else {
                 messageDiv.innerHTML = '<div class="alert alert-error">✗ ' + result.message + '</div>';
             }
