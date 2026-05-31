@@ -21,11 +21,24 @@ require_once __DIR__ . '/includes/xhs_api.php';
 // 检查是否已安装
 $configExists = file_exists(__DIR__ . '/config.php') && filesize(__DIR__ . '/config.php') > 100;
 
+// 检查数据库是否已初始化
+$dbInitialized = false;
 $db = null;
 $error = '';
 
 try {
     $db = Database::getInstance();
+    // 测试数据库连接并检查表是否存在
+    $db->getConnection()->query("SELECT 1 FROM users LIMIT 1");
+    $dbInitialized = true;
+} catch (PDOException $e) {
+    // 表不存在，检查是否是连接问题还是表问题
+    $errorMsg = $e->getMessage();
+    if (strpos($errorMsg, "doesn't exist") !== false || strpos($errorMsg, "1146") !== false) {
+        $error = '数据库表未初始化，请先运行 <a href="install.php" style="color:#667eea;">install.php</a>';
+    } else {
+        $error = '数据库连接失败: ' . $errorMsg;
+    }
 } catch (Exception $e) {
     $error = '数据库连接失败: ' . $e->getMessage();
 }
@@ -34,6 +47,51 @@ try {
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 header('Content-Type: text/html; charset=UTF-8');
+
+// 如果数据库未初始化，显示初始化提示页面
+if (!$dbInitialized && empty($action)) {
+?>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小红书作品更新提醒系统 - 未初始化</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .card { background: #fff; border-radius: 16px; padding: 50px; max-width: 500px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+        h1 { color: #333; margin-bottom: 20px; font-size: 28px; }
+        .icon { font-size: 80px; margin-bottom: 20px; }
+        p { color: #666; margin-bottom: 30px; line-height: 1.6; }
+        .btn { display: inline-block; padding: 15px 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border-radius: 30px; text-decoration: none; font-size: 18px; font-weight: 500; transition: transform 0.2s; }
+        .btn:hover { transform: translateY(-2px); }
+        .note { margin-top: 30px; padding: 20px; background: #f5f5f5; border-radius: 10px; text-align: left; }
+        .note h3 { color: #333; margin-bottom: 10px; font-size: 16px; }
+        .note ol { padding-left: 20px; color: #666; font-size: 14px; line-height: 1.8; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">🚀</div>
+        <h1>初始化提示</h1>
+        <p><?= $error ?></p>
+        <a href="install.php" class="btn">前往初始化 →</a>
+        <div class="note">
+            <h3>📋 初始化步骤</h3>
+            <ol>
+                <li>点击上方按钮或访问 <code>install.php</code></li>
+                <li>确保数据库配置正确（config.php）</li>
+                <li>点击初始化按钮创建数据表</li>
+                <li>返回首页开始使用</li>
+            </ol>
+        </div>
+    </div>
+</body>
+</html>
+<?php
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -101,21 +159,21 @@ header('Content-Type: text/html; charset=UTF-8');
         <?php if ($error): ?>
         <div class="card">
             <div class="alert alert-warning">
-                <strong>⚠️ 系统提示:</strong> <?= htmlspecialchars($error) ?><br>
-                请先配置数据库连接，参考 <code>install.php</code> 初始化数据库，然后配置 <code>config.php</code>。
+                <strong>⚠️ 系统提示:</strong> <?= $error ?><br>
+                请先运行 <a href="install.php" style="color:#667eea;">install.php</a> 初始化数据库。
             </div>
         </div>
         <?php endif; ?>
         
         <div class="stats">
             <?php
-            $users = $db ? $db->getUsers() : [];
-            $logs = $db ? $db->getLogs(null, 100) : [];
-            $todayLogs = array_filter($logs, function($log) {
+            $users = $dbInitialized ? $db->getUsers() : [];
+            $logs = $dbInitialized ? $db->getLogs(null, 100) : [];
+            $todayLogs = $dbInitialized ? array_filter($logs, function($log) {
                 return strtotime($log['created_at']) > strtotime('today');
-            });
-            $newNotesToday = array_sum(array_column($todayLogs, 'new_count'));
-            $errorCount = count(array_filter($logs, function($log) { return $log['action'] === 'error'; }));
+            }) : [];
+            $newNotesToday = $dbInitialized ? array_sum(array_column($todayLogs, 'new_count')) : 0;
+            $errorCount = $dbInitialized ? count(array_filter($logs, function($log) { return $log['action'] === 'error'; })) : 0;
             ?>
             <div class="stat-item">
                 <div class="stat-value"><?= count($users) ?></div>
@@ -173,8 +231,8 @@ header('Content-Type: text/html; charset=UTF-8');
             <?php else: ?>
             <div class="grid">
                 <?php foreach ($users as $user): 
-                    $noteCount = $db ? $db->getNoteCount($user['user_id']) : 0;
-                    $latestNote = $db ? $db->getLatestNote($user['user_id']) : null;
+                    $noteCount = $dbInitialized ? $db->getNoteCount($user['user_id']) : 0;
+                    $latestNote = $dbInitialized ? $db->getLatestNote($user['user_id']) : null;
                 ?>
                 <div class="user-card">
                     <?php if ($user['avatar']): ?>
@@ -240,7 +298,7 @@ header('Content-Type: text/html; charset=UTF-8');
             <form id="emailForm" onsubmit="saveEmailSettings(event)">
                 <div class="form-group">
                     <label>通知邮箱（多个用英文逗号分隔）</label>
-                    <input type="text" id="notifyEmails" value="<?= $db ? htmlspecialchars($db->getSetting('notify_emails', '')) : '' ?>" placeholder="example@qq.com, example2@qq.com">
+                    <input type="text" id="notifyEmails" value="<?= $dbInitialized ? htmlspecialchars($db->getSetting('notify_emails', '')) : '' ?>" placeholder="example@qq.com, example2@qq.com">
                 </div>
                 <button type="submit" class="btn">保存设置</button>
             </form>
