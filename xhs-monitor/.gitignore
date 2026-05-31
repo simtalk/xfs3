@@ -1,0 +1,23 @@
+# PHP
+*.php.bak
+*.swp
+*~
+
+# Config (保留示例文件)
+config.php
+
+# Logs
+data/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# Composer
+/vendor/
+composer.phar

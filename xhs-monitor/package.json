@@ -1,0 +1,12 @@
+{
+  "name": "xhs-scraper",
+  "version": "1.0.0",
+  "description": "小红书数据抓取工具 - 使用Playwright",
+  "main": "scraper.js",
+  "scripts": {
+    "scrape": "node scraper.js"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}
